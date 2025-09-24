@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Search, FileText, Folder, Download, Calendar, User, Shield, Database, Hash } from 'lucide-react';
+import { Search, FileText, Folder, Download, Calendar, User, Shield, Database, Hash, SortAsc, SortDesc, Filter } from 'lucide-react';
 
 export default function Home() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [xmlData, setXmlData] = useState(null);
   const [error, setError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
 
   const parseXMLResponse = (xmlString) => {
     try {
@@ -141,6 +143,40 @@ export default function Home() {
     }
   };
 
+  // New function to filter and sort files
+  const getFilteredAndSortedFiles = () => {
+    if (!xmlData || !xmlData.files) return [];
+    
+    let filteredFiles = xmlData.files;
+    
+    // Apply search filter if query exists
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filteredFiles = filteredFiles.filter(file => 
+        file.name.toLowerCase().includes(query)
+      );
+    }
+    
+    // Apply sorting by upload date (lastModified)
+    filteredFiles = [...filteredFiles].sort((a, b) => {
+      const dateA = new Date(a.lastModified || 0);
+      const dateB = new Date(b.lastModified || 0);
+      
+      if (sortOrder === 'asc') {
+        return dateA - dateB;
+      } else {
+        return dateB - dateA;
+      }
+    });
+    
+    return filteredFiles;
+  };
+  
+  // Toggle sort order function
+  const toggleSortOrder = () => {
+    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800">
       {/* Header */}
@@ -269,10 +305,40 @@ export default function Home() {
             {xmlData.files.length > 0 ? (
               <div className="bg-gray-900/50 backdrop-blur-sm rounded-xl shadow-2xl border border-gray-800 overflow-hidden">
                 <div className="px-6 py-4 bg-gray-800/50 border-b border-gray-700">
-                  <h3 className="text-lg font-semibold text-white">Objects in Bucket</h3>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <h3 className="text-lg font-semibold text-white">Objects in Bucket</h3>
+                    
+                    {/* Search and Sort Controls */}
+                    <div className="flex flex-col md:flex-row gap-3">
+                      {/* Search Bar */}
+                      <div className="relative w-full md:w-64">
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Search files..."
+                          className="w-full px-4 py-2 pr-10 bg-gray-800/50 border border-gray-700 text-white placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                        />
+                        <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
+                      </div>
+                      
+                      {/* Sort Button */}
+                      <button 
+                        onClick={toggleSortOrder}
+                        className="flex items-center space-x-2 px-4 py-2 bg-gray-800/50 border border-gray-700 rounded-lg hover:bg-gray-700/50 transition-all duration-200"
+                      >
+                        <span className="text-sm text-gray-300">Date</span>
+                        {sortOrder === 'asc' ? (
+                          <SortAsc className="h-4 w-4 text-gray-400" />
+                        ) : (
+                          <SortDesc className="h-4 w-4 text-gray-400" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 <div className="divide-y divide-gray-800">
-                  {xmlData.files.map((file, index) => (
+                  {getFilteredAndSortedFiles().map((file, index) => (
                     <div key={index} className="px-6 py-5 hover:bg-gray-800/30 transition-all duration-200 group">
                       <div className="flex items-start justify-between">
                         <div className="flex items-start space-x-4 flex-1">
@@ -335,6 +401,13 @@ export default function Home() {
                       </div>
                     </div>
                   ))}
+                  
+                  {/* No results message */}
+                  {getFilteredAndSortedFiles().length === 0 && (
+                    <div className="p-8 text-center">
+                      <p className="text-gray-400">No files found matching your search.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
