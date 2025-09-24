@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Search, FileText, Folder, Download, Calendar, User, Shield, Database, Hash, SortAsc, SortDesc, Filter } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, FileText, Folder, Download, Calendar, User, Shield, Database, Hash, SortAsc, SortDesc, Filter, Copy, Check, Clock, List } from 'lucide-react';
 
 export default function Home() {
   const [url, setUrl] = useState('');
@@ -7,7 +7,31 @@ export default function Home() {
   const [xmlData, setXmlData] = useState(null);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [toggleSortOrder] = useState(() => {
+    setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+  });
+  
+  // New state variables
+  const [typeFilter, setTypeFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
+  const [recentUrls, setRecentUrls] = useState([]);
+  const [showRecentUrls, setShowRecentUrls] = useState(false);
+  const [copiedFile, setCopiedFile] = useState(null);
+  
+  // Load recent URLs from localStorage on component mount
+  useEffect(() => {
+    const savedUrls = localStorage.getItem('recentUrls');
+    if (savedUrls) {
+      setRecentUrls(JSON.parse(savedUrls));
+    }
+  }, []);
+  
+  // Save recent URLs to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('recentUrls', JSON.stringify(recentUrls));
+  }, [recentUrls]);
 
   const parseXMLResponse = (xmlString) => {
     try {
@@ -136,11 +160,41 @@ export default function Home() {
       const xmlText = await response.text();
       const parsedData = parseXMLResponse(xmlText);
       setXmlData(parsedData);
+      
+      // Add URL to recent list if it's not already there
+      if (!recentUrls.includes(url)) {
+        const updatedUrls = [url, ...recentUrls.slice(0, 4)]; // Keep only the 5 most recent
+        setRecentUrls(updatedUrls);
+      }
+      
+      // Reset filters and pagination when loading new data
+      setSearchQuery('');
+      setTypeFilter('');
+      setCurrentPage(1);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  };
+  
+  // Extract unique file types from data
+  const getUniqueFileTypes = () => {
+    if (!xmlData || !xmlData.files) return [];
+    
+    const types = new Set();
+    xmlData.files.forEach(file => {
+      if (file.type) types.add(file.type);
+    });
+    
+    return Array.from(types).sort();
+  };
+  
+  // Copy file path to clipboard
+  const copyToClipboard = (filePath) => {
+    navigator.clipboard.writeText(filePath);
+    setCopiedFile(filePath);
+    setTimeout(() => setCopiedFile(null), 2000); // Reset after 2 seconds
   };
 
   // New function to filter and sort files
@@ -155,6 +209,11 @@ export default function Home() {
       filteredFiles = filteredFiles.filter(file => 
         file.name.toLowerCase().includes(query)
       );
+    }
+    
+    // Apply file type filter if selected
+    if (typeFilter) {
+      filteredFiles = filteredFiles.filter(file => file.type === typeFilter);
     }
     
     // Apply sorting by upload date (lastModified)
@@ -172,10 +231,34 @@ export default function Home() {
     return filteredFiles;
   };
   
-  // Toggle sort order function
-  const toggleSortOrder = () => {
-    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+  // Pagination logic
+  const paginateFiles = (files) => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return files.slice(startIndex, startIndex + itemsPerPage);
   };
+
+  // Create download URL for a file
+  const getDownloadUrl = (fileName) => {
+    // Extract base URL from input URL
+    try {
+      const baseUrl = new URL(url);
+      // For S3-like URLs, construct a direct object URL
+      // This is a simplified approach and might need adjustments for specific S3 implementations
+      return `${baseUrl.origin}${baseUrl.pathname !== '/' ? baseUrl.pathname : ''}/${encodeURIComponent(fileName)}`;
+    } catch (e) {
+      return null;
+    }
+  };
+  
+  const resetFilters = () => {
+    setSearchQuery('');
+    setTypeFilter('');
+    setCurrentPage(1);
+    setSortOrder('asc');
+  };
+
+  // Get total pages for pagination
+  const totalPages = xmlData ? Math.ceil(getFilteredAndSortedFiles().length / itemsPerPage) : 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800">
@@ -214,8 +297,37 @@ export default function Home() {
                   className="w-full px-4 py-3 pr-12 bg-gray-800/50 border border-gray-700 text-white placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                   onKeyDown={(e) => e.key === 'Enter' && handleSubmit(e)}
                 />
-                <Search className="absolute right-3 top-3 h-5 w-5 text-gray-400" />
+                <div className="absolute right-3 top-3">
+                  <button 
+                    onClick={() => setShowRecentUrls(!showRecentUrls)}
+                    className="text-gray-400 hover:text-gray-300"
+                  >
+                    <Clock className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
+              
+              {/* Recent URLs dropdown */}
+              {showRecentUrls && recentUrls.length > 0 && (
+                <div className="absolute mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-10">
+                  <ul className="py-1">
+                    {recentUrls.map((recentUrl, index) => (
+                      <li key={index}>
+                        <button
+                          onClick={() => {
+                            setUrl(recentUrl);
+                            setShowRecentUrls(false);
+                          }}
+                          className="w-full text-left px-4 py-2 text-gray-300 hover:bg-gray-700 flex items-center space-x-2"
+                        >
+                          <Clock className="h-4 w-4" />
+                          <span className="truncate">{recentUrl}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
             <button
               onClick={handleSubmit}
@@ -308,7 +420,7 @@ export default function Home() {
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <h3 className="text-lg font-semibold text-white">Objects in Bucket</h3>
                     
-                    {/* Search and Sort Controls */}
+                    {/* Search, Filter and Sort Controls */}
                     <div className="flex flex-col md:flex-row gap-3">
                       {/* Search Bar */}
                       <div className="relative w-full md:w-64">
@@ -322,6 +434,27 @@ export default function Home() {
                         <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
                       </div>
                       
+                   {/* File Type Filter Dropdown */}
+                        <div className="relative w-fit">
+                        <select 
+                            value={typeFilter}
+                            onChange={(e) => setTypeFilter(e.target.value)}
+                            className="appearance-none w-full min-w-[160px] pl-4 pr-10 py-2 bg-gray-800/50 border border-gray-700 text-white rounded-lg 
+                                    focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 hover:bg-gray-700/50"
+                        >
+                            <option value="">All File Types</option>
+                            {getUniqueFileTypes().map(type => (
+                            <option key={type} value={type}>{type}</option>
+                            ))}
+                        </select>
+
+                        {/* Custom icon */}
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400">
+                            <Filter className="h-4 w-4" />
+                        </div>
+                        </div>
+
+                      
                       {/* Sort Button */}
                       <button 
                         onClick={toggleSortOrder}
@@ -334,11 +467,21 @@ export default function Home() {
                           <SortDesc className="h-4 w-4 text-gray-400" />
                         )}
                       </button>
+                      
+                      {/* Reset Filters Button */}
+                      {(searchQuery || typeFilter || sortOrder !== 'asc' || currentPage > 1) && (
+                        <button
+                          onClick={resetFilters}
+                          className="flex items-center space-x-2 px-3 py-2 bg-gray-800/50 border border-gray-700 rounded-lg hover:bg-red-900/30 hover:border-red-700/50 transition-all duration-200 text-gray-300 hover:text-red-300"
+                        >
+                          <span className="text-sm">Reset</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
                 <div className="divide-y divide-gray-800">
-                  {getFilteredAndSortedFiles().map((file, index) => (
+                  {paginateFiles(getFilteredAndSortedFiles()).map((file, index) => (
                     <div key={index} className="px-6 py-5 hover:bg-gray-800/30 transition-all duration-200 group">
                       <div className="flex items-start justify-between">
                         <div className="flex items-start space-x-4 flex-1">
@@ -349,9 +492,34 @@ export default function Home() {
                           </div>
                           
                           <div className="min-w-0 flex-1">
-                            <p className="text-white font-medium group-hover:text-blue-300 transition-colors truncate">
-                              {file.name}
-                            </p>
+                            <div className="flex items-center space-x-2">
+                              <p className="text-white font-medium group-hover:text-blue-300 transition-colors truncate">
+                                {file.name}
+                              </p>
+                              
+                              {/* Copy path button */}
+                              <button 
+                                onClick={() => copyToClipboard(file.name)}
+                                className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-400 transition-all"
+                                title="Copy path to clipboard"
+                              >
+                                {copiedFile === file.name ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </button>
+                              
+                              {/* Download button */}
+                              {getDownloadUrl(file.name) && (
+                                <a 
+                                  href={getDownloadUrl(file.name)} 
+                                  download
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-green-400 transition-all"
+                                  title="Download file"
+                                >
+                                  <Download className="h-4 w-4" />
+                                </a>
+                              )}
+                            </div>
                             
                             <div className="flex flex-wrap items-center gap-3 mt-2">
                               <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border ${getStorageClassColor(file.storageClass)}`}>
@@ -405,10 +573,68 @@ export default function Home() {
                   {/* No results message */}
                   {getFilteredAndSortedFiles().length === 0 && (
                     <div className="p-8 text-center">
-                      <p className="text-gray-400">No files found matching your search.</p>
+                      <p className="text-gray-400">No files found matching your criteria.</p>
                     </div>
                   )}
                 </div>
+                
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="px-6 py-4 bg-gray-800/50 border-t border-gray-700 flex justify-between items-center">
+                    <div className="text-sm text-gray-400">
+                      Showing {Math.min((currentPage - 1) * itemsPerPage + 1, getFilteredAndSortedFiles().length)} to {Math.min(currentPage * itemsPerPage, getFilteredAndSortedFiles().length)} of {getFilteredAndSortedFiles().length} items
+                    </div>
+                    
+                    <div className="flex space-x-2">
+                      <button 
+                        onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1 bg-gray-800/50 border border-gray-700 rounded text-gray-300 disabled:opacity-50"
+                      >
+                        Previous
+                      </button>
+                      
+                      {/* Page indicators */}
+                      <div className="flex items-center space-x-1">
+                        {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                          // Calculate which page numbers to show
+                          let pageNum;
+                          if (totalPages <= 5) {
+                            pageNum = i + 1;
+                          } else if (currentPage <= 3) {
+                            pageNum = i + 1;
+                          } else if (currentPage >= totalPages - 2) {
+                            pageNum = totalPages - 4 + i;
+                          } else {
+                            pageNum = currentPage - 2 + i;
+                          }
+                          
+                          return (
+                            <button
+                              key={i}
+                              onClick={() => setCurrentPage(pageNum)}
+                              className={`w-8 h-8 rounded flex items-center justify-center ${
+                                currentPage === pageNum
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-gray-800/50 border border-gray-700 text-gray-300'
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      
+                      <button
+                        onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-1 bg-gray-800/50 border border-gray-700 rounded text-gray-300 disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="bg-gray-900/50 backdrop-blur-sm rounded-xl shadow-2xl border border-gray-800 p-12 text-center">
